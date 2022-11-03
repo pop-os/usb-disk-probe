@@ -24,7 +24,7 @@ pub enum Error {
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// use usb_disk_probe::stream::UsbDiskProbe;
 /// 
 /// use futures::stream::StreamExt;
