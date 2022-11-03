@@ -1,8 +1,8 @@
 [package]
 name = "usb-disk-probe"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Michael Aaron Murphy <mmstick@pm.me>"]
-edition = "2018"
+edition = "2021"
 description = """
 Provides a stream type which can be used to probe for USB storage devices in the system.
 """
@@ -13,6 +13,9 @@ keywords = ["usb", "device", "probe", "linux"]
 categories = ["asynchronous", "os::unix-apis"]
 
 [dependencies]
-async-std = "1"
 futures = "0.3"
-thiserror = "1.0.9"
+thiserror = "1.0.37"
+
+[dependencies.tokio]
+version = "1.21.2"
+features = ["fs"]

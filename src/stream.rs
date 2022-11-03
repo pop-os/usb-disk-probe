@@ -1,12 +1,12 @@
 use super::DISK_DIR;
-
-use async_std::{fs, path::Path};
 use futures::stream::Stream;
 use std::{
     io,
+    path::Path,
     pin::Pin,
     task::{Context, Poll},
 };
+use tokio::fs;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -26,9 +26,9 @@ pub enum Error {
 ///
 /// ```no_run
 /// use usb_disk_probe::stream::UsbDiskProbe;
-/// 
+///
 /// use futures::stream::StreamExt;
-/// 
+///
 /// fn main() {
 ///     futures::executor::block_on(async move {
 ///         let mut stream = UsbDiskProbe::new().await.unwrap();
@@ -55,60 +55,39 @@ impl Stream for UsbDiskProbe {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         loop {
-            match unsafe { Pin::new_unchecked(&mut self.0) }.poll_next(cx) {
+            match self.0.poll_next_entry(cx) {
                 Poll::Pending => return Poll::Pending,
-                Poll::Ready(Some(res)) => match filter_device(res) {
+                Poll::Ready(Ok(Some(res))) => match filter_device(res) {
                     value @ Some(_) => return Poll::Ready(value),
                     None => continue,
                 },
-                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Ready(Ok(None)) => return Poll::Ready(None),
+                Poll::Ready(Err(why)) => return Poll::Ready(Some(Err(Error::Iteration(why)))),
             }
         }
     }
 }
 
 /// Filter USB devices which are not USB devices
-fn filter_device(entry: io::Result<fs::DirEntry>) -> Option<Result<Box<Path>, Error>> {
-    transpose(entry.map_err(Error::Iteration), |entry| {
-        let path = entry.path();
+fn filter_device(entry: fs::DirEntry) -> Option<Result<Box<Path>, Error>> {
+    let path = entry.path();
 
-        let result = transpose(
-            path.file_name().ok_or(Error::DeviceWithoutFileName),
-            |filename_os| {
-                transpose(
-                    filename_os.to_str().ok_or(Error::DevicePathNotUtf8),
-                    |filename_str| {
-                        if is_usb(filename_str) {
-                            Some(Ok(()))
-                        } else {
-                            None
-                        }
-                    },
-                )
-            },
-        );
-
-        match result {
-            Some(Ok(())) => Some(Ok(path.into_boxed_path())),
-            Some(Err(why)) => Some(Err(why)),
-            None => None,
-        }
-    })
+    match path.file_name() {
+        Some(filename) => match filename.to_str().ok_or(Error::DevicePathNotUtf8) {
+            Ok(filename) => {
+                if is_usb(filename) {
+                    Some(Ok(path.into_boxed_path()))
+                } else {
+                    None
+                }
+            }
+            Err(why) => return Some(Err(why)),
+        },
+        None => return Some(Err(Error::DeviceWithoutFileName)),
+    }
 }
 
 /// Checks if a device is a USB device
 fn is_usb(filename: &str) -> bool {
     filename.starts_with("pci-") && filename.contains("-usb-") && filename.ends_with("-0:0:0:0")
-}
-
-/// Converts an `Err(E)` to a `Some(Err(E))`, and maps the `Ok(T)` to an `Option<Result<X, E>>`
-#[inline]
-fn transpose<T, E, X, F: FnOnce(T) -> Option<Result<X, E>>>(
-    input: Result<T, E>,
-    func: F,
-) -> Option<Result<X, E>> {
-    match input {
-        Ok(value) => func(value),
-        Err(why) => Some(Err(why)),
-    }
 }
